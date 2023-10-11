@@ -2,7 +2,7 @@
 
 namespace Facebook\WebDriver\Remote\Service;
 
-use Facebook\WebDriver\Exception\DriverServerDiedException;
+use Facebook\WebDriver\Exception\Internal\DriverServerDiedException;
 use Facebook\WebDriver\Exception\WebDriverException;
 use Facebook\WebDriver\Remote\DriverCommand;
 use Facebook\WebDriver\Remote\HttpCommandExecutor;
@@ -26,10 +26,8 @@ class DriverCommandExecutor extends HttpCommandExecutor
     }
 
     /**
-     * @param WebDriverCommand $command
-     *
-     * @throws WebDriverException
      * @throws \Exception
+     * @throws WebDriverException
      * @return WebDriverResponse
      */
     public function execute(WebDriverCommand $command)
