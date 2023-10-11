@@ -3,7 +3,7 @@
         'name' => 'cretueusebiu/laravel-vue-spa',
         'pretty_version' => 'dev-master',
         'version' => 'dev-master',
-        'reference' => '02b2a0516cf62cf690b671c3caab10fc11b845b4',
+        'reference' => '58ce5d43a08c5b3f3a84211bd7631af195f95582',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -73,7 +73,7 @@
         'cretueusebiu/laravel-vue-spa' => array(
             'pretty_version' => 'dev-master',
             'version' => 'dev-master',
-            'reference' => '02b2a0516cf62cf690b671c3caab10fc11b845b4',
+            'reference' => '58ce5d43a08c5b3f3a84211bd7631af195f95582',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
@@ -913,8 +913,8 @@
         'psr/log-implementation' => array(
             'dev_requirement' => false,
             'provided' => array(
-                0 => '1.0.0 || 2.0.0 || 3.0.0',
-                1 => '1.0|2.0',
+                0 => '1.0|2.0',
+                1 => '1.0.0 || 2.0.0 || 3.0.0',
             ),
         ),
         'psr/simple-cache' => array(
