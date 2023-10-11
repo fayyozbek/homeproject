@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -12,9 +12,14 @@
 
 namespace Composer\Command;
 
-use Composer\Package\CompletePackageInterface;
+use Composer\Json\JsonFile;
 use Composer\Package\AliasPackage;
+use Composer\Package\BasePackage;
+use Composer\Package\CompletePackageInterface;
+use Composer\Pcre\Preg;
 use Composer\Repository\CompositeRepository;
+use Composer\Semver\Constraint\MatchAllConstraint;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -25,29 +30,58 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class FundCommand extends BaseCommand
 {
-    protected function configure()
+    /**
+     * @return void
+     */
+    protected function configure(): void
     {
         $this->setName('fund')
             ->setDescription('Discover how to help fund the maintenance of your dependencies.')
+            ->setDefinition(array(
+                new InputOption('format', 'f', InputOption::VALUE_REQUIRED, 'Format of the output: text or json', 'text'),
+            ))
         ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $composer = $this->getComposer();
+        $composer = $this->requireComposer();
 
         $repo = $composer->getRepositoryManager()->getLocalRepository();
         $remoteRepos = new CompositeRepository($composer->getRepositoryManager()->getRepositories());
         $fundings = array();
+
+        $packagesToLoad = array();
         foreach ($repo->getPackages() as $package) {
             if ($package instanceof AliasPackage) {
                 continue;
             }
-            $latest = $remoteRepos->findPackage($package->getName(), 'dev-master');
-            if ($latest instanceof CompletePackageInterface && $latest->getFunding()) {
-                $fundings = $this->insertFundingData($fundings, $latest);
+            $packagesToLoad[$package->getName()] = new MatchAllConstraint();
+        }
+
+        // load all packages dev versions in parallel
+        $result = $remoteRepos->loadPackages($packagesToLoad, array('dev' => BasePackage::STABILITY_DEV), array());
+
+        // collect funding data from default branches
+        foreach ($result['packages'] as $package) {
+            if (
+                !$package instanceof AliasPackage
+                && $package instanceof CompletePackageInterface
+                && $package->isDefaultBranch()
+                && $package->getFunding()
+                && isset($packagesToLoad[$package->getName()])
+            ) {
+                $fundings = $this->insertFundingData($fundings, $package);
+                unset($packagesToLoad[$package->getName()]);
+            }
+        }
+
+        // collect funding from installed packages if none was found in the default branch above
+        foreach ($repo->getPackages() as $package) {
+            if ($package instanceof AliasPackage || !isset($packagesToLoad[$package->getName()])) {
                 continue;
             }
+
             if ($package instanceof CompletePackageInterface && $package->getFunding()) {
                 $fundings = $this->insertFundingData($fundings, $package);
             }
@@ -57,7 +91,14 @@ class FundCommand extends BaseCommand
 
         $io = $this->getIO();
 
-        if ($fundings) {
+        $format = $input->getOption('format');
+        if (!in_array($format, array('text', 'json'))) {
+            $io->writeError(sprintf('Unsupported format "%s". See help for supported formats.', $format));
+
+            return 1;
+        }
+
+        if ($fundings && $format === 'text') {
             $prev = null;
 
             $io->write('The following packages were found in your dependencies which publish funding information:');
@@ -73,13 +114,15 @@ class FundCommand extends BaseCommand
                         $prev = $line;
                     }
 
-                    $io->write(sprintf('    %s', $url));
+                    $io->write(sprintf('    <href=%s>%s</>', OutputFormatter::escape($url), $url));
                 }
             }
 
             $io->write("");
             $io->write("Please consider following these links and sponsoring the work of package authors!");
             $io->write("Thank you!");
+        } elseif ($format === 'json') {
+            $io->write(JsonFile::encode($fundings));
         } else {
             $io->write("No funding links were found in your package dependencies. This doesn't mean they don't need your support!");
         }
@@ -87,7 +130,11 @@ class FundCommand extends BaseCommand
         return 0;
     }
 
-    private function insertFundingData(array $fundings, CompletePackageInterface $package)
+    /**
+     * @param mixed[] $fundings
+     * @return mixed[]
+     */
+    private function insertFundingData(array $fundings, CompletePackageInterface $package): array
     {
         foreach ($package->getFunding() as $fundingOption) {
             list($vendor, $packageName) = explode('/', $package->getPrettyName());
@@ -96,7 +143,7 @@ class FundCommand extends BaseCommand
                 continue;
             }
             $url = $fundingOption['url'];
-            if (!empty($fundingOption['type']) && $fundingOption['type'] === 'github' && preg_match('{^https://github.com/([^/]+)$}', $url, $match)) {
+            if (!empty($fundingOption['type']) && $fundingOption['type'] === 'github' && Preg::isMatch('{^https://github.com/([^/]+)$}', $url, $match)) {
                 $url = 'https://github.com/sponsors/'.$match[1];
             }
             $fundings[$vendor][$url][] = $packageName;

@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -13,16 +13,17 @@
 namespace Composer\IO;
 
 use Composer\Config;
+use Composer\Pcre\Preg;
 use Composer\Util\ProcessExecutor;
-use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
-abstract class BaseIO implements IOInterface, LoggerInterface
+abstract class BaseIO implements IOInterface
 {
+    /** @var array<string, array{username: string|null, password: string|null}> */
     protected $authentications = array();
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function getAuthentications()
     {
@@ -30,7 +31,7 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @return void
      */
     public function resetAuthentications()
     {
@@ -38,7 +39,7 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function hasAuthentication($repositoryName)
     {
@@ -46,7 +47,7 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function getAuthentication($repositoryName)
     {
@@ -58,7 +59,7 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function setAuthentication($repositoryName, $username, $password = null)
     {
@@ -66,17 +67,17 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
-    public function writeRaw($messages, $newline = true, $verbosity = self::NORMAL)
+    public function writeRaw($messages, bool $newline = true, int $verbosity = self::NORMAL)
     {
         $this->write($messages, $newline, $verbosity);
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
-    public function writeErrorRaw($messages, $newline = true, $verbosity = self::NORMAL)
+    public function writeErrorRaw($messages, bool $newline = true, int $verbosity = self::NORMAL)
     {
         $this->writeError($messages, $newline, $verbosity);
     }
@@ -87,8 +88,10 @@ abstract class BaseIO implements IOInterface, LoggerInterface
      * @param string $repositoryName The unique name of repository
      * @param string $username       The username
      * @param string $password       The password
+     *
+     * @return void
      */
-    protected function checkAndSetAuthentication($repositoryName, $username, $password = null)
+    protected function checkAndSetAuthentication(string $repositoryName, string $username, string $password = null)
     {
         if ($this->hasAuthentication($repositoryName)) {
             $auth = $this->getAuthentication($repositoryName);
@@ -107,16 +110,16 @@ abstract class BaseIO implements IOInterface, LoggerInterface
     }
 
     /**
-     * {@inheritDoc}
+     * @inheritDoc
      */
     public function loadConfiguration(Config $config)
     {
-        $bitbucketOauth = $config->get('bitbucket-oauth') ?: array();
-        $githubOauth = $config->get('github-oauth') ?: array();
-        $gitlabOauth = $config->get('gitlab-oauth') ?: array();
-        $gitlabToken = $config->get('gitlab-token') ?: array();
-        $httpBasic = $config->get('http-basic') ?: array();
-        $bearerToken = $config->get('bearer') ?: array();
+        $bitbucketOauth = $config->get('bitbucket-oauth');
+        $githubOauth = $config->get('github-oauth');
+        $gitlabOauth = $config->get('gitlab-oauth');
+        $gitlabToken = $config->get('gitlab-token');
+        $httpBasic = $config->get('http-basic');
+        $bearerToken = $config->get('bearer');
 
         // reload oauth tokens from config if available
 
@@ -125,7 +128,9 @@ abstract class BaseIO implements IOInterface, LoggerInterface
         }
 
         foreach ($githubOauth as $domain => $token) {
-            if (!preg_match('{^[.a-z0-9]+$}', $token)) {
+            // allowed chars for GH tokens are from https://github.blog/changelog/2021-03-04-authentication-token-format-updates/
+            // plus dots which were at some point used for GH app integration tokens
+            if (!Preg::isMatch('{^[.A-Za-z0-9_]+$}', $token)) {
                 throw new \UnexpectedValueException('Your github oauth token for '.$domain.' contains invalid characters: "'.$token.'"');
             }
             $this->checkAndSetAuthentication($domain, $token, 'x-oauth-basic');
@@ -136,7 +141,9 @@ abstract class BaseIO implements IOInterface, LoggerInterface
         }
 
         foreach ($gitlabToken as $domain => $token) {
-            $this->checkAndSetAuthentication($domain, $token, 'private-token');
+            $username = is_array($token) ? $token["username"] : $token;
+            $password = is_array($token) ? $token["token"] : 'private-token';
+            $this->checkAndSetAuthentication($domain, $username, $password);
         }
 
         // reload http basic credentials from config if available
@@ -149,130 +156,57 @@ abstract class BaseIO implements IOInterface, LoggerInterface
         }
 
         // setup process timeout
-        ProcessExecutor::setTimeout((int) $config->get('process-timeout'));
+        ProcessExecutor::setTimeout($config->get('process-timeout'));
     }
 
-    /**
-     * System is unusable.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function emergency($message, array $context = array())
+    public function emergency($message, array $context = array()): void
     {
-        return $this->log(LogLevel::EMERGENCY, $message, $context);
+        $this->log(LogLevel::EMERGENCY, $message, $context);
     }
 
-    /**
-     * Action must be taken immediately.
-     *
-     * Example: Entire website down, database unavailable, etc. This should
-     * trigger the SMS alerts and wake you up.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function alert($message, array $context = array())
+    public function alert($message, array $context = array()): void
     {
-        return $this->log(LogLevel::ALERT, $message, $context);
+        $this->log(LogLevel::ALERT, $message, $context);
     }
 
-    /**
-     * Critical conditions.
-     *
-     * Example: Application component unavailable, unexpected exception.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function critical($message, array $context = array())
+    public function critical($message, array $context = array()): void
     {
-        return $this->log(LogLevel::CRITICAL, $message, $context);
+        $this->log(LogLevel::CRITICAL, $message, $context);
     }
 
-    /**
-     * Runtime errors that do not require immediate action but should typically
-     * be logged and monitored.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function error($message, array $context = array())
+    public function error($message, array $context = array()): void
     {
-        return $this->log(LogLevel::ERROR, $message, $context);
+        $this->log(LogLevel::ERROR, $message, $context);
     }
 
-    /**
-     * Exceptional occurrences that are not errors.
-     *
-     * Example: Use of deprecated APIs, poor use of an API, undesirable things
-     * that are not necessarily wrong.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function warning($message, array $context = array())
+    public function warning($message, array $context = array()): void
     {
-        return $this->log(LogLevel::WARNING, $message, $context);
+        $this->log(LogLevel::WARNING, $message, $context);
     }
 
-    /**
-     * Normal but significant events.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function notice($message, array $context = array())
+    public function notice($message, array $context = array()): void
     {
-        return $this->log(LogLevel::NOTICE, $message, $context);
+        $this->log(LogLevel::NOTICE, $message, $context);
     }
 
-    /**
-     * Interesting events.
-     *
-     * Example: User logs in, SQL logs.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function info($message, array $context = array())
+    public function info($message, array $context = array()): void
     {
-        return $this->log(LogLevel::INFO, $message, $context);
+        $this->log(LogLevel::INFO, $message, $context);
     }
 
-    /**
-     * Detailed debug information.
-     *
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function debug($message, array $context = array())
+    public function debug($message, array $context = array()): void
     {
-        return $this->log(LogLevel::DEBUG, $message, $context);
+        $this->log(LogLevel::DEBUG, $message, $context);
     }
 
-    /**
-     * Logs with an arbitrary level.
-     *
-     * @param  mixed  $level
-     * @param  string $message
-     * @param  array  $context
-     * @return null
-     */
-    public function log($level, $message, array $context = array())
+    public function log($level, $message, array $context = array()): void
     {
+        $message = (string) $message;
+
         if (in_array($level, array(LogLevel::EMERGENCY, LogLevel::ALERT, LogLevel::CRITICAL, LogLevel::ERROR))) {
-            $this->writeError('<error>'.$message.'</error>', true, self::NORMAL);
+            $this->writeError('<error>'.$message.'</error>');
         } elseif ($level === LogLevel::WARNING) {
-            $this->writeError('<warning>'.$message.'</warning>', true, self::NORMAL);
+            $this->writeError('<warning>'.$message.'</warning>');
         } elseif ($level === LogLevel::NOTICE) {
             $this->writeError('<info>'.$message.'</info>', true, self::VERBOSE);
         } elseif ($level === LogLevel::INFO) {

@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -13,19 +13,10 @@
 namespace Composer\Installer;
 
 use Composer\Composer;
-use Composer\DependencyResolver\PolicyInterface;
-use Composer\DependencyResolver\Operation\OperationInterface;
-use Composer\DependencyResolver\Pool;
-use Composer\DependencyResolver\Request;
+use Composer\DependencyResolver\Transaction;
 use Composer\EventDispatcher\Event;
 use Composer\IO\IOInterface;
-use Composer\Repository\CompositeRepository;
 
-/**
- * An event for all installer.
- *
- * @author François Pluchino <francois.pluchino@gmail.com>
- */
 class InstallerEvent extends Event
 {
     /**
@@ -44,61 +35,40 @@ class InstallerEvent extends Event
     private $devMode;
 
     /**
-     * @var PolicyInterface
+     * @var bool
      */
-    private $policy;
+    private $executeOperations;
 
     /**
-     * @var Pool
+     * @var Transaction
      */
-    private $pool;
-
-    /**
-     * @var CompositeRepository
-     */
-    private $installedRepo;
-
-    /**
-     * @var Request
-     */
-    private $request;
-
-    /**
-     * @var OperationInterface[]
-     */
-    private $operations;
+    private $transaction;
 
     /**
      * Constructor.
      *
-     * @param string               $eventName
-     * @param Composer             $composer
-     * @param IOInterface          $io
-     * @param bool                 $devMode
-     * @param PolicyInterface      $policy
-     * @param Pool                 $pool
-     * @param CompositeRepository  $installedRepo
-     * @param Request              $request
-     * @param OperationInterface[] $operations
+     * @param string      $eventName
+     * @param Composer    $composer
+     * @param IOInterface $io
+     * @param bool        $devMode
+     * @param bool        $executeOperations
+     * @param Transaction $transaction
      */
-    public function __construct($eventName, Composer $composer, IOInterface $io, $devMode, PolicyInterface $policy, Pool $pool, CompositeRepository $installedRepo, Request $request, array $operations = array())
+    public function __construct(string $eventName, Composer $composer, IOInterface $io, bool $devMode, bool $executeOperations, Transaction $transaction)
     {
         parent::__construct($eventName);
 
         $this->composer = $composer;
         $this->io = $io;
         $this->devMode = $devMode;
-        $this->policy = $policy;
-        $this->pool = $pool;
-        $this->installedRepo = $installedRepo;
-        $this->request = $request;
-        $this->operations = $operations;
+        $this->executeOperations = $executeOperations;
+        $this->transaction = $transaction;
     }
 
     /**
      * @return Composer
      */
-    public function getComposer()
+    public function getComposer(): Composer
     {
         return $this->composer;
     }
@@ -106,7 +76,7 @@ class InstallerEvent extends Event
     /**
      * @return IOInterface
      */
-    public function getIO()
+    public function getIO(): IOInterface
     {
         return $this->io;
     }
@@ -114,48 +84,24 @@ class InstallerEvent extends Event
     /**
      * @return bool
      */
-    public function isDevMode()
+    public function isDevMode(): bool
     {
         return $this->devMode;
     }
 
     /**
-     * @return PolicyInterface
+     * @return bool
      */
-    public function getPolicy()
+    public function isExecutingOperations(): bool
     {
-        return $this->policy;
+        return $this->executeOperations;
     }
 
     /**
-     * @return Pool
+     * @return Transaction|null
      */
-    public function getPool()
+    public function getTransaction(): ?Transaction
     {
-        return $this->pool;
-    }
-
-    /**
-     * @return CompositeRepository
-     */
-    public function getInstalledRepo()
-    {
-        return $this->installedRepo;
-    }
-
-    /**
-     * @return Request
-     */
-    public function getRequest()
-    {
-        return $this->request;
-    }
-
-    /**
-     * @return OperationInterface[]
-     */
-    public function getOperations()
-    {
-        return $this->operations;
+        return $this->transaction;
     }
 }

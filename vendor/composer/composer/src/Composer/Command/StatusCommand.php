@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -32,14 +32,15 @@ use Composer\Util\ProcessExecutor;
  */
 class StatusCommand extends BaseCommand
 {
-    const EXIT_CODE_ERRORS = 1;
-    const EXIT_CODE_UNPUSHED_CHANGES = 2;
-    const EXIT_CODE_VERSION_CHANGES = 4;
+    private const EXIT_CODE_ERRORS = 1;
+    private const EXIT_CODE_UNPUSHED_CHANGES = 2;
+    private const EXIT_CODE_VERSION_CHANGES = 4;
 
     /**
+     * @return void
      * @throws \Symfony\Component\Console\Exception\InvalidArgumentException
      */
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('status')
@@ -58,14 +59,9 @@ EOT
         ;
     }
 
-    /**
-     * @param  InputInterface  $input
-     * @param  OutputInterface $output
-     * @return int
-     */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $composer = $this->getComposer();
+        $composer = $this->requireComposer();
 
         $commandEvent = new CommandEvent(PluginEvents::COMMAND, 'status', $input, $output);
         $composer->getEventDispatcher()->dispatch($commandEvent->getName(), $commandEvent);
@@ -73,7 +69,7 @@ EOT
         // Dispatch pre-status-command
         $composer->getEventDispatcher()->dispatchScript(ScriptEvents::PRE_STATUS_CMD, true);
 
-        $exitCode = $this->doExecute($input, $output);
+        $exitCode = $this->doExecute($input);
 
         // Dispatch post-status-command
         $composer->getEventDispatcher()->dispatchScript(ScriptEvents::POST_STATUS_CMD, true);
@@ -82,14 +78,12 @@ EOT
     }
 
     /**
-     * @param  InputInterface  $input
-     * @param  OutputInterface $output
      * @return int
      */
-    private function doExecute(InputInterface $input, OutputInterface $output)
+    private function doExecute(InputInterface $input): int
     {
         // init repos
-        $composer = $this->getComposer();
+        $composer = $this->requireComposer();
 
         $installedRepo = $composer->getRepositoryManager()->getLocalRepository();
 
@@ -102,12 +96,12 @@ EOT
         $vcsVersionChanges = array();
 
         $parser = new VersionParser;
-        $guesser = new VersionGuesser($composer->getConfig(), new ProcessExecutor($io), $parser);
+        $guesser = new VersionGuesser($composer->getConfig(), $composer->getLoop()->getProcessExecutor() ?? new ProcessExecutor($io), $parser);
         $dumper = new ArrayDumper;
 
         // list packages
         foreach ($installedRepo->getCanonicalPackages() as $package) {
-            $downloader = $dm->getDownloaderForInstalledPackage($package);
+            $downloader = $dm->getDownloaderForPackage($package);
             $targetDir = $im->getInstallPath($package);
 
             if ($downloader instanceof ChangeReportInterface) {
@@ -115,13 +109,13 @@ EOT
                     $errors[$targetDir] = $targetDir . ' is a symbolic link.';
                 }
 
-                if ($changes = $downloader->getLocalChanges($package, $targetDir)) {
+                if (null !== ($changes = $downloader->getLocalChanges($package, $targetDir))) {
                     $errors[$targetDir] = $changes;
                 }
             }
 
             if ($downloader instanceof VcsCapableDownloaderInterface) {
-                if ($currentRef = $downloader->getVcsReference($package, $targetDir)) {
+                if ($downloader->getVcsReference($package, $targetDir)) {
                     switch ($package->getInstallationSource()) {
                         case 'source':
                             $previousRef = $package->getSourceReference();
@@ -169,7 +163,7 @@ EOT
 
             foreach ($errors as $path => $changes) {
                 if ($input->getOption('verbose')) {
-                    $indentedChanges = implode("\n", array_map(function ($line) {
+                    $indentedChanges = implode("\n", array_map(function ($line): string {
                         return '    ' . ltrim($line);
                     }, explode("\n", $changes)));
                     $io->write('<info>'.$path.'</info>:');
@@ -185,7 +179,7 @@ EOT
 
             foreach ($unpushedChanges as $path => $changes) {
                 if ($input->getOption('verbose')) {
-                    $indentedChanges = implode("\n", array_map(function ($line) {
+                    $indentedChanges = implode("\n", array_map(function ($line): string {
                         return '    ' . ltrim($line);
                     }, explode("\n", $changes)));
                     $io->write('<info>'.$path.'</info>:');

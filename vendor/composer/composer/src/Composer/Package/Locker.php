@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -14,11 +14,12 @@ namespace Composer\Package;
 
 use Composer\Json\JsonFile;
 use Composer\Installer\InstallationManager;
-use Composer\Repository\RepositoryManager;
+use Composer\Pcre\Preg;
+use Composer\Repository\LockArrayRepository;
 use Composer\Util\ProcessExecutor;
-use Composer\Repository\ArrayRepository;
 use Composer\Package\Dumper\ArrayDumper;
 use Composer\Package\Loader\ArrayLoader;
+use Composer\Package\Version\VersionParser;
 use Composer\Plugin\PluginInterface;
 use Composer\Util\Git as GitUtil;
 use Composer\IO\IOInterface;
@@ -32,35 +33,42 @@ use Seld\JsonLint\ParsingException;
  */
 class Locker
 {
+    /** @var JsonFile */
     private $lockFile;
-    private $repositoryManager;
+    /** @var InstallationManager */
     private $installationManager;
+    /** @var string */
     private $hash;
+    /** @var string */
     private $contentHash;
+    /** @var ArrayLoader */
     private $loader;
+    /** @var ArrayDumper */
     private $dumper;
+    /** @var ProcessExecutor */
     private $process;
-    private $lockDataCache;
+    /** @var mixed[]|null */
+    private $lockDataCache = null;
+    /** @var bool */
+    private $virtualFileWritten = false;
 
     /**
      * Initializes packages locker.
      *
      * @param IOInterface         $io
      * @param JsonFile            $lockFile             lockfile loader
-     * @param RepositoryManager   $repositoryManager    repository manager instance
      * @param InstallationManager $installationManager  installation manager instance
      * @param string              $composerFileContents The contents of the composer file
      */
-    public function __construct(IOInterface $io, JsonFile $lockFile, RepositoryManager $repositoryManager, InstallationManager $installationManager, $composerFileContents)
+    public function __construct(IOInterface $io, JsonFile $lockFile, InstallationManager $installationManager, string $composerFileContents, ProcessExecutor $process = null)
     {
         $this->lockFile = $lockFile;
-        $this->repositoryManager = $repositoryManager;
         $this->installationManager = $installationManager;
         $this->hash = md5($composerFileContents);
         $this->contentHash = self::getContentHash($composerFileContents);
         $this->loader = new ArrayLoader(null, true);
         $this->dumper = new ArrayDumper();
-        $this->process = new ProcessExecutor($io);
+        $this->process = $process ?? new ProcessExecutor($io);
     }
 
     /**
@@ -70,9 +78,9 @@ class Locker
      *
      * @return string
      */
-    public static function getContentHash($composerFileContents)
+    public static function getContentHash(string $composerFileContents): string
     {
-        $content = json_decode($composerFileContents, true);
+        $content = JsonFile::parseJson($composerFileContents, 'composer.json');
 
         $relevantKeys = array(
             'name',
@@ -99,7 +107,7 @@ class Locker
 
         ksort($relevantContent);
 
-        return md5(json_encode($relevantContent));
+        return md5(JsonFile::encode($relevantContent, 0));
     }
 
     /**
@@ -107,9 +115,9 @@ class Locker
      *
      * @return bool
      */
-    public function isLocked()
+    public function isLocked(): bool
     {
-        if (!$this->lockFile->exists()) {
+        if (!$this->virtualFileWritten && !$this->lockFile->exists()) {
             return false;
         }
 
@@ -123,7 +131,7 @@ class Locker
      *
      * @return bool
      */
-    public function isFresh()
+    public function isFresh(): bool
     {
         $lock = $this->lockFile->read();
 
@@ -146,19 +154,19 @@ class Locker
      *
      * @param  bool                                     $withDevReqs true to retrieve the locked dev packages
      * @throws \RuntimeException
-     * @return \Composer\Repository\RepositoryInterface
+     * @return \Composer\Repository\LockArrayRepository
      */
-    public function getLockedRepository($withDevReqs = false)
+    public function getLockedRepository(bool $withDevReqs = false): LockArrayRepository
     {
         $lockData = $this->getLockData();
-        $packages = new ArrayRepository();
+        $packages = new LockArrayRepository();
 
         $lockedPackages = $lockData['packages'];
         if ($withDevReqs) {
             if (isset($lockData['packages-dev'])) {
                 $lockedPackages = array_merge($lockedPackages, $lockData['packages-dev']);
             } else {
-                throw new \RuntimeException('The lock file does not contain require-dev information, run install with the --no-dev option or run update to install those packages.');
+                throw new \RuntimeException('The lock file does not contain require-dev information, run install with the --no-dev option or delete it and run composer update to generate a new lock file.');
             }
         }
 
@@ -167,14 +175,47 @@ class Locker
         }
 
         if (isset($lockedPackages[0]['name'])) {
+            $packageByName = array();
             foreach ($lockedPackages as $info) {
-                $packages->addPackage($this->loader->load($info));
+                $package = $this->loader->load($info);
+                $packages->addPackage($package);
+                $packageByName[$package->getName()] = $package;
+
+                if ($package instanceof AliasPackage) {
+                    $packageByName[$package->getAliasOf()->getName()] = $package->getAliasOf();
+                }
+            }
+
+            if (isset($lockData['aliases'])) {
+                foreach ($lockData['aliases'] as $alias) {
+                    if (isset($packageByName[$alias['package']])) {
+                        $aliasPkg = new CompleteAliasPackage($packageByName[$alias['package']], $alias['alias_normalized'], $alias['alias']);
+                        $aliasPkg->setRootPackageAlias(true);
+                        $packages->addPackage($aliasPkg);
+                    }
+                }
             }
 
             return $packages;
         }
 
-        throw new \RuntimeException('Your composer.lock was created before 2012-09-15, and is not supported anymore. Run "composer update" to generate a new one.');
+        throw new \RuntimeException('Your composer.lock is invalid. Run "composer update" to generate a new one.');
+    }
+
+    /**
+     * @return string[] Names of dependencies installed through require-dev
+     */
+    public function getDevPackageNames(): array
+    {
+        $names = array();
+        $lockData = $this->getLockData();
+        if (isset($lockData['packages-dev'])) {
+            foreach ($lockData['packages-dev'] as $package) {
+                $names[] = strtolower($package['name']);
+            }
+        }
+
+        return $names;
     }
 
     /**
@@ -183,26 +224,26 @@ class Locker
      * @param  bool                     $withDevReqs if true, the platform requirements from the require-dev block are also returned
      * @return \Composer\Package\Link[]
      */
-    public function getPlatformRequirements($withDevReqs = false)
+    public function getPlatformRequirements(bool $withDevReqs = false): array
     {
         $lockData = $this->getLockData();
         $requirements = array();
 
         if (!empty($lockData['platform'])) {
             $requirements = $this->loader->parseLinks(
-                '__ROOT__',
+                '__root__',
                 '1.0.0',
-                'requires',
-                isset($lockData['platform']) ? $lockData['platform'] : array()
+                Link::TYPE_REQUIRE,
+                $lockData['platform'] ?? array()
             );
         }
 
         if ($withDevReqs && !empty($lockData['platform-dev'])) {
             $devRequirements = $this->loader->parseLinks(
-                '__ROOT__',
+                '__root__',
                 '1.0.0',
-                'requires',
-                isset($lockData['platform-dev']) ? $lockData['platform-dev'] : array()
+                Link::TYPE_REQUIRE,
+                $lockData['platform-dev'] ?? array()
             );
 
             $requirements = array_merge($requirements, $devRequirements);
@@ -211,53 +252,86 @@ class Locker
         return $requirements;
     }
 
-    public function getMinimumStability()
+    /**
+     * @return string
+     */
+    public function getMinimumStability(): string
     {
         $lockData = $this->getLockData();
 
-        return isset($lockData['minimum-stability']) ? $lockData['minimum-stability'] : 'stable';
+        return $lockData['minimum-stability'] ?? 'stable';
     }
 
-    public function getStabilityFlags()
+    /**
+     * @return array<string, string>
+     */
+    public function getStabilityFlags(): array
     {
         $lockData = $this->getLockData();
 
-        return isset($lockData['stability-flags']) ? $lockData['stability-flags'] : array();
+        return $lockData['stability-flags'] ?? array();
     }
 
-    public function getPreferStable()
+    /**
+     * @return bool|null
+     */
+    public function getPreferStable(): ?bool
     {
         $lockData = $this->getLockData();
 
         // return null if not set to allow caller logic to choose the
         // right behavior since old lock files have no prefer-stable
-        return isset($lockData['prefer-stable']) ? $lockData['prefer-stable'] : null;
+        return $lockData['prefer-stable'] ?? null;
     }
 
-    public function getPreferLowest()
+    /**
+     * @return bool|null
+     */
+    public function getPreferLowest(): ?bool
     {
         $lockData = $this->getLockData();
 
         // return null if not set to allow caller logic to choose the
         // right behavior since old lock files have no prefer-lowest
-        return isset($lockData['prefer-lowest']) ? $lockData['prefer-lowest'] : null;
+        return $lockData['prefer-lowest'] ?? null;
     }
 
-    public function getPlatformOverrides()
+    /**
+     * @return array<string, string>
+     */
+    public function getPlatformOverrides(): array
     {
         $lockData = $this->getLockData();
 
-        return isset($lockData['platform-overrides']) ? $lockData['platform-overrides'] : array();
+        return $lockData['platform-overrides'] ?? array();
     }
 
-    public function getAliases()
+    /**
+     * @return string[][]
+     *
+     * @phpstan-return list<array{package: string, version: string, alias: string, alias_normalized: string}>
+     */
+    public function getAliases(): array
     {
         $lockData = $this->getLockData();
 
-        return isset($lockData['aliases']) ? $lockData['aliases'] : array();
+        return $lockData['aliases'] ?? array();
     }
 
-    public function getLockData()
+    /**
+     * @return string
+     */
+    public function getPluginApi()
+    {
+        $lockData = $this->getLockData();
+
+        return isset($lockData['plugin-api-version']) ? $lockData['plugin-api-version'] : '1.1.0';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getLockData(): array
     {
         if (null !== $this->lockDataCache) {
             return $this->lockDataCache;
@@ -273,21 +347,34 @@ class Locker
     /**
      * Locks provided data into lockfile.
      *
-     * @param array  $packages          array of packages
-     * @param mixed  $devPackages       array of dev packages or null if installed without --dev
-     * @param array  $platformReqs      array of package name => constraint for required platform packages
-     * @param mixed  $platformDevReqs   array of package name => constraint for dev-required platform packages
-     * @param array  $aliases           array of aliases
-     * @param string $minimumStability
-     * @param array  $stabilityFlags
-     * @param bool   $preferStable
-     * @param bool   $preferLowest
-     * @param array  $platformOverrides
+     * @param PackageInterface[]          $packages          array of packages
+     * @param PackageInterface[]|null     $devPackages       array of dev packages or null if installed without --dev
+     * @param array<string, string>       $platformReqs      array of package name => constraint for required platform packages
+     * @param array<string, string>       $platformDevReqs   array of package name => constraint for dev-required platform packages
+     * @param string[][]                  $aliases           array of aliases
+     * @param string                      $minimumStability
+     * @param array<string, int>          $stabilityFlags
+     * @param bool                        $preferStable
+     * @param bool                        $preferLowest
+     * @param array<string, string|false> $platformOverrides
+     * @param bool                        $write             Whether to actually write data to disk, useful in tests and for --dry-run
      *
      * @return bool
+     *
+     * @phpstan-param list<array{package: string, version: string, alias: string, alias_normalized: string}> $aliases
      */
-    public function setLockData(array $packages, $devPackages, array $platformReqs, $platformDevReqs, array $aliases, $minimumStability, array $stabilityFlags, $preferStable, $preferLowest, array $platformOverrides)
+    public function setLockData(array $packages, ?array $devPackages, array $platformReqs, array $platformDevReqs, array $aliases, string $minimumStability, array $stabilityFlags, bool $preferStable, bool $preferLowest, array $platformOverrides, bool $write = true): bool
     {
+        // keep old default branch names normalized to DEFAULT_BRANCH_ALIAS for BC as that is how Composer 1 outputs the lock file
+        // when loading the lock file the version is anyway ignored in Composer 2, so it has no adverse effect
+        $aliases = array_map(function ($alias): array {
+            if (in_array($alias['version'], array('dev-master', 'dev-trunk', 'dev-default'), true)) {
+                $alias['version'] = VersionParser::DEFAULT_BRANCH_ALIAS;
+            }
+
+            return $alias;
+        }, $aliases);
+
         $lock = array(
             '_readme' => array('This file locks the dependencies of your project to a known state',
                                'Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies',
@@ -295,23 +382,12 @@ class Locker
             'content-hash' => $this->contentHash,
             'packages' => null,
             'packages-dev' => null,
-            'aliases' => array(),
+            'aliases' => $aliases,
             'minimum-stability' => $minimumStability,
             'stability-flags' => $stabilityFlags,
             'prefer-stable' => $preferStable,
             'prefer-lowest' => $preferLowest,
         );
-
-        foreach ($aliases as $package => $versions) {
-            foreach ($versions as $version => $alias) {
-                $lock['aliases'][] = array(
-                    'alias' => $alias['alias'],
-                    'alias_normalized' => $alias['alias_normalized'],
-                    'version' => $version,
-                    'package' => $package,
-                );
-            }
-        }
 
         $lock['packages'] = $this->lockPackages($packages);
         if (null !== $devPackages) {
@@ -320,18 +396,10 @@ class Locker
 
         $lock['platform'] = $platformReqs;
         $lock['platform-dev'] = $platformDevReqs;
-        if ($platformOverrides) {
+        if (\count($platformOverrides) > 0) {
             $lock['platform-overrides'] = $platformOverrides;
         }
         $lock['plugin-api-version'] = PluginInterface::PLUGIN_API_VERSION;
-
-        if (empty($lock['packages']) && empty($lock['packages-dev']) && empty($lock['platform']) && empty($lock['platform-dev'])) {
-            if ($this->lockFile->exists()) {
-                unlink($this->lockFile->getPath());
-            }
-
-            return false;
-        }
 
         try {
             $isLocked = $this->isLocked();
@@ -339,8 +407,14 @@ class Locker
             $isLocked = false;
         }
         if (!$isLocked || $lock !== $this->getLockData()) {
-            $this->lockFile->write($lock);
-            $this->lockDataCache = null;
+            if ($write) {
+                $this->lockFile->write($lock);
+                $this->lockDataCache = null;
+                $this->virtualFileWritten = false;
+            } else {
+                $this->virtualFileWritten = true;
+                $this->lockDataCache = JsonFile::parseJson(JsonFile::encode($lock));
+            }
 
             return true;
         }
@@ -348,7 +422,14 @@ class Locker
         return false;
     }
 
-    private function lockPackages(array $packages)
+    /**
+     * @param PackageInterface[] $packages
+     *
+     * @return mixed[][]
+     *
+     * @phpstan-return list<array<string, mixed>>
+     */
+    private function lockPackages(array $packages): array
     {
         $locked = array();
 
@@ -371,7 +452,7 @@ class Locker
             unset($spec['version_normalized']);
 
             // always move time to the end of the package definition
-            $time = isset($spec['time']) ? $spec['time'] : null;
+            $time = $spec['time'] ?? null;
             unset($spec['time']);
             if ($package->isDev() && $package->getInstallationSource() === 'source') {
                 // use the exact commit time of the current reference if it's a dev package
@@ -406,7 +487,7 @@ class Locker
      * @param  PackageInterface $package The package to scan.
      * @return string|null      The formatted datetime or null if none was found.
      */
-    private function getPackageTime(PackageInterface $package)
+    private function getPackageTime(PackageInterface $package): ?string
     {
         if (!function_exists('proc_open')) {
             return null;
@@ -422,13 +503,13 @@ class Locker
                 case 'git':
                     GitUtil::cleanEnv();
 
-                    if (0 === $this->process->execute('git log -n1 --pretty=%ct '.ProcessExecutor::escape($sourceRef).GitUtil::getNoShowSignatureFlag($this->process), $output, $path) && preg_match('{^\s*\d+\s*$}', $output)) {
+                    if (0 === $this->process->execute('git log -n1 --pretty=%ct '.ProcessExecutor::escape($sourceRef).GitUtil::getNoShowSignatureFlag($this->process), $output, $path) && Preg::isMatch('{^\s*\d+\s*$}', $output)) {
                         $datetime = new \DateTime('@'.trim($output), new \DateTimeZone('UTC'));
                     }
                     break;
 
                 case 'hg':
-                    if (0 === $this->process->execute('hg log --template "{date|hgdate}" -r '.ProcessExecutor::escape($sourceRef), $output, $path) && preg_match('{^\s*(\d+)\s*}', $output, $match)) {
+                    if (0 === $this->process->execute('hg log --template "{date|hgdate}" -r '.ProcessExecutor::escape($sourceRef), $output, $path) && Preg::isMatch('{^\s*(\d+)\s*}', $output, $match)) {
                         $datetime = new \DateTime('@'.$match[1], new \DateTimeZone('UTC'));
                     }
                     break;

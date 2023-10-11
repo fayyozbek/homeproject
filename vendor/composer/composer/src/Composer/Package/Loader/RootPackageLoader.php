@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -13,14 +13,16 @@
 namespace Composer\Package\Loader;
 
 use Composer\Package\BasePackage;
-use Composer\Package\AliasPackage;
 use Composer\Config;
 use Composer\IO\IOInterface;
-use Composer\Package\RootPackageInterface;
+use Composer\Package\RootAliasPackage;
+use Composer\Pcre\Preg;
 use Composer\Repository\RepositoryFactory;
 use Composer\Package\Version\VersionGuesser;
 use Composer\Package\Version\VersionParser;
+use Composer\Package\RootPackage;
 use Composer\Repository\RepositoryManager;
+use Composer\Util\Platform;
 use Composer\Util\ProcessExecutor;
 
 /**
@@ -47,47 +49,44 @@ class RootPackageLoader extends ArrayLoader
      */
     private $versionGuesser;
 
-    /**
-     * @var IOInterface
-     */
-    private $io;
-
     public function __construct(RepositoryManager $manager, Config $config, VersionParser $parser = null, VersionGuesser $versionGuesser = null, IOInterface $io = null)
     {
         parent::__construct($parser);
 
         $this->manager = $manager;
         $this->config = $config;
-        $this->versionGuesser = $versionGuesser ?: new VersionGuesser($config, new ProcessExecutor(), $this->versionParser);
-        $this->io = $io;
+        $this->versionGuesser = $versionGuesser ?: new VersionGuesser($config, new ProcessExecutor($io), $this->versionParser);
     }
 
     /**
-     * @param  array                $config package data
-     * @param  string               $class  FQCN to be instantiated
-     * @param  string               $cwd    cwd of the root package to be used to guess the version if it is not provided
-     * @return RootPackageInterface
+     * @inheritDoc
+     *
+     * @param string|null $cwd
+     *
+     * @return RootPackage|RootAliasPackage
+     *
+     * @phpstan-param class-string<RootPackage> $class
      */
-    public function load(array $config, $class = 'Composer\Package\RootPackage', $cwd = null)
+    public function load(array $config, string $class = 'Composer\Package\RootPackage', ?string $cwd = null): BasePackage
     {
+        if ($class !== 'Composer\Package\RootPackage') {
+            trigger_error('The $class arg is deprecated, please reach out to Composer maintainers ASAP if you still need this.', E_USER_DEPRECATED);
+        }
+
         if (!isset($config['name'])) {
             $config['name'] = '__root__';
-        } elseif ($this->io) {
-            if ($err = ValidatingArrayLoader::hasPackageNamingError($config['name'])) {
-                $this->io->writeError('<warning>Deprecation warning: Your package name '.$err.' Make sure you fix this as Composer 2.0 will error.</warning>');
-            }
+        } elseif ($err = ValidatingArrayLoader::hasPackageNamingError($config['name'])) {
+            throw new \RuntimeException('Your package name '.$err);
         }
         $autoVersioned = false;
         if (!isset($config['version'])) {
             $commit = null;
 
-            if (isset($config['extra']['branch-version'])) {
-                $config['version'] = preg_replace('{(\.x)?(-dev)?$}', '', $config['extra']['branch-version']).'.x-dev';
-            } elseif (getenv('COMPOSER_ROOT_VERSION')) {
-                // override with env var if available
-                $config['version'] = getenv('COMPOSER_ROOT_VERSION');
+            // override with env var if available
+            if (Platform::getEnv('COMPOSER_ROOT_VERSION')) {
+                $config['version'] = Platform::getEnv('COMPOSER_ROOT_VERSION');
             } else {
-                $versionData = $this->versionGuesser->guessVersion($config, $cwd ?: getcwd());
+                $versionData = $this->versionGuesser->guessVersion($config, $cwd ?? Platform::getCwd(true));
                 if ($versionData) {
                     $config['version'] = $versionData['pretty_version'];
                     $config['version_normalized'] = $versionData['version'];
@@ -114,13 +113,20 @@ class RootPackageLoader extends ArrayLoader
             }
         }
 
-        $realPackage = $package = parent::load($config, $class);
-        if ($realPackage instanceof AliasPackage) {
+        /** @var RootPackage|RootAliasPackage $package */
+        $package = parent::load($config, $class);
+        if ($package instanceof RootAliasPackage) {
             $realPackage = $package->getAliasOf();
+        } else {
+            $realPackage = $package;
+        }
+
+        if (!$realPackage instanceof RootPackage) {
+            throw new \LogicException('Expecting a Composer\Package\RootPackage at this point');
         }
 
         if ($autoVersioned) {
-            $realPackage->replaceVersion($realPackage->getVersion(), 'No version set (parsed as 1.0.0)');
+            $realPackage->replaceVersion($realPackage->getVersion(), RootPackage::DEFAULT_PRETTY_VERSION);
         }
 
         if (isset($config['minimum-stability'])) {
@@ -139,8 +145,8 @@ class RootPackageLoader extends ArrayLoader
                     $links[$link->getTarget()] = $link->getConstraint()->getPrettyString();
                 }
                 $aliases = $this->extractAliases($links, $aliases);
-                $stabilityFlags = $this->extractStabilityFlags($links, $stabilityFlags, $realPackage->getMinimumStability());
-                $references = $this->extractReferences($links, $references);
+                $stabilityFlags = self::extractStabilityFlags($links, $realPackage->getMinimumStability(), $stabilityFlags);
+                $references = self::extractReferences($links, $references);
 
                 if (isset($links[$config['name']])) {
                     throw new \RuntimeException(sprintf('Root package \'%s\' cannot require itself in its composer.json' . PHP_EOL .
@@ -149,13 +155,11 @@ class RootPackageLoader extends ArrayLoader
             }
         }
 
-        if ($this->io) {
-            foreach (array_keys(BasePackage::$supportedLinkTypes) as $linkType) {
-                if (isset($config[$linkType])) {
-                    foreach ($config[$linkType] as $linkName => $constraint) {
-                        if ($err = ValidatingArrayLoader::hasPackageNamingError($linkName, true)) {
-                            $this->io->writeError('<warning>Deprecation warning: '.$linkType.'.'.$err.' Make sure you fix this as Composer 2.0 will error.</warning>');
-                        }
+        foreach (array_keys(BasePackage::$supportedLinkTypes) as $linkType) {
+            if (isset($config[$linkType])) {
+                foreach ($config[$linkType] as $linkName => $constraint) {
+                    if ($err = ValidatingArrayLoader::hasPackageNamingError($linkName, true)) {
+                        throw new \RuntimeException($linkType.'.'.$err);
                     }
                 }
             }
@@ -182,10 +186,16 @@ class RootPackageLoader extends ArrayLoader
         return $package;
     }
 
-    private function extractAliases(array $requires, array $aliases)
+    /**
+     * @param array<string, string>                                                                  $requires
+     * @param list<array{package: string, version: string, alias: string, alias_normalized: string}> $aliases
+     *
+     * @return list<array{package: string, version: string, alias: string, alias_normalized: string}>
+     */
+    private function extractAliases(array $requires, array $aliases): array
     {
         foreach ($requires as $reqName => $reqVersion) {
-            if (preg_match('{^([^,\s#]+)(?:#[^ ]+)? +as +([^,\s]+)$}', $reqVersion, $match)) {
+            if (Preg::isMatch('{^([^,\s#]+)(?:#[^ ]+)? +as +([^,\s]+)$}', $reqVersion, $match)) {
                 $aliases[] = array(
                     'package' => strtolower($reqName),
                     'version' => $this->versionParser->normalize($match[1], $reqVersion),
@@ -200,26 +210,39 @@ class RootPackageLoader extends ArrayLoader
         return $aliases;
     }
 
-    private function extractStabilityFlags(array $requires, array $stabilityFlags, $minimumStability)
+    /**
+     * @internal
+     *
+     * @param array<string, string> $requires
+     * @param string                $minimumStability
+     * @param array<string, int>    $stabilityFlags
+     *
+     * @return array<string, int>
+     *
+     * @phpstan-param array<string, BasePackage::STABILITY_*> $stabilityFlags
+     * @phpstan-return array<string, BasePackage::STABILITY_*>
+     */
+    public static function extractStabilityFlags(array $requires, string $minimumStability, array $stabilityFlags): array
     {
         $stabilities = BasePackage::$stabilities;
+        /** @var int $minimumStability */
         $minimumStability = $stabilities[$minimumStability];
         foreach ($requires as $reqName => $reqVersion) {
             $constraints = array();
 
             // extract all sub-constraints in case it is an OR/AND multi-constraint
-            $orSplit = preg_split('{\s*\|\|?\s*}', trim($reqVersion));
+            $orSplit = Preg::split('{\s*\|\|?\s*}', trim($reqVersion));
             foreach ($orSplit as $orConstraint) {
-                $andSplit = preg_split('{(?<!^|as|[=>< ,]) *(?<!-)[, ](?!-) *(?!,|as|$)}', $orConstraint);
+                $andSplit = Preg::split('{(?<!^|as|[=>< ,]) *(?<!-)[, ](?!-) *(?!,|as|$)}', $orConstraint);
                 foreach ($andSplit as $andConstraint) {
                     $constraints[] = $andConstraint;
                 }
             }
 
             // parse explicit stability flags to the most unstable
-            $match = false;
+            $matched = false;
             foreach ($constraints as $constraint) {
-                if (preg_match('{^[^@]*?@('.implode('|', array_keys($stabilities)).')$}i', $constraint, $match)) {
+                if (Preg::isMatch('{^[^@]*?@('.implode('|', array_keys($stabilities)).')$}i', $constraint, $match)) {
                     $name = strtolower($reqName);
                     $stability = $stabilities[VersionParser::normalizeStability($match[1])];
 
@@ -227,19 +250,19 @@ class RootPackageLoader extends ArrayLoader
                         continue;
                     }
                     $stabilityFlags[$name] = $stability;
-                    $match = true;
+                    $matched = true;
                 }
             }
 
-            if ($match) {
+            if ($matched) {
                 continue;
             }
 
             foreach ($constraints as $constraint) {
                 // infer flags for requirements that have an explicit -dev or -beta version specified but only
                 // for those that are more unstable than the minimumStability or existing flags
-                $reqVersion = preg_replace('{^([^,\s@]+) as .+$}', '$1', $constraint);
-                if (preg_match('{^[^,\s@]+$}', $reqVersion) && 'stable' !== ($stabilityName = VersionParser::parseStability($reqVersion))) {
+                $reqVersion = Preg::replace('{^([^,\s@]+) as .+$}', '$1', $constraint);
+                if (Preg::isMatch('{^[^,\s@]+$}', $reqVersion) && 'stable' !== ($stabilityName = VersionParser::parseStability($reqVersion))) {
                     $name = strtolower($reqName);
                     $stability = $stabilities[$stabilityName];
                     if ((isset($stabilityFlags[$name]) && $stabilityFlags[$name] > $stability) || ($minimumStability > $stability)) {
@@ -253,11 +276,19 @@ class RootPackageLoader extends ArrayLoader
         return $stabilityFlags;
     }
 
-    private function extractReferences(array $requires, array $references)
+    /**
+     * @internal
+     *
+     * @param array<string, string> $requires
+     * @param array<string, string> $references
+     *
+     * @return array<string, string>
+     */
+    public static function extractReferences(array $requires, array $references): array
     {
         foreach ($requires as $reqName => $reqVersion) {
-            $reqVersion = preg_replace('{^([^,\s@]+) as .+$}', '$1', $reqVersion);
-            if (preg_match('{^[^,\s@]+?#([a-f0-9]+)$}', $reqVersion, $match) && 'dev' === VersionParser::parseStability($reqVersion)) {
+            $reqVersion = Preg::replace('{^([^,\s@]+) as .+$}', '$1', $reqVersion);
+            if (Preg::isMatch('{^[^,\s@]+?#([a-f0-9]+)$}', $reqVersion, $match) && 'dev' === VersionParser::parseStability($reqVersion)) {
                 $name = strtolower($reqName);
                 $references[$name] = $match[1];
             }

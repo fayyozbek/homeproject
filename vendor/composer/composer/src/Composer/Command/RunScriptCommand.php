@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * This file is part of Composer.
@@ -15,11 +15,11 @@ namespace Composer\Command;
 use Composer\Script\Event as ScriptEvent;
 use Composer\Script\ScriptEvents;
 use Composer\Util\ProcessExecutor;
+use Composer\Util\Platform;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Helper\Table;
 
 /**
  * @author Fabien Potencier <fabien.potencier@gmail.com>
@@ -27,7 +27,7 @@ use Symfony\Component\Console\Helper\Table;
 class RunScriptCommand extends BaseCommand
 {
     /**
-     * @var array Array with command events
+     * @var string[] Array with command events
      */
     protected $scriptEvents = array(
         ScriptEvents::PRE_INSTALL_CMD,
@@ -44,7 +44,10 @@ class RunScriptCommand extends BaseCommand
         ScriptEvents::POST_AUTOLOAD_DUMP,
     );
 
-    protected function configure()
+    /**
+     * @return void
+     */
+    protected function configure(): void
     {
         $this
             ->setName('run-script')
@@ -70,22 +73,24 @@ EOT
         ;
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         if ($input->getOption('list')) {
             return $this->listScripts($output);
-        } elseif (!$input->getArgument('script')) {
-            throw new \RuntimeException('Missing required argument "script"');
         }
 
         $script = $input->getArgument('script');
+        if ($script === null) {
+            throw new \RuntimeException('Missing required argument "script"');
+        }
+
         if (!in_array($script, $this->scriptEvents)) {
             if (defined('Composer\Script\ScriptEvents::'.str_replace('-', '_', strtoupper($script)))) {
                 throw new \InvalidArgumentException(sprintf('Script "%s" cannot be run with this command', $script));
             }
         }
 
-        $composer = $this->getComposer();
+        $composer = $this->requireComposer();
         $devMode = $input->getOption('dev') || !$input->getOption('no-dev');
         $event = new ScriptEvent($script, $composer, $this->getIO(), $devMode);
         $hasListeners = $composer->getEventDispatcher()->hasEventListeners($event);
@@ -103,12 +108,17 @@ EOT
             ProcessExecutor::setTimeout((int) $timeout);
         }
 
+        Platform::putEnv('COMPOSER_DEV_MODE', $devMode ? '1' : '0');
+
         return $composer->getEventDispatcher()->dispatchScript($script, $devMode, $args);
     }
 
-    protected function listScripts(OutputInterface $output)
+    /**
+     * @return int
+     */
+    protected function listScripts(OutputInterface $output): int
     {
-        $scripts = $this->getComposer()->getPackage()->getScripts();
+        $scripts = $this->requireComposer()->getPackage()->getScripts();
 
         if (!count($scripts)) {
             return 0;
@@ -130,16 +140,7 @@ EOT
             $table[] = array('  '.$name, $description);
         }
 
-        $renderer = new Table($output);
-        $renderer->setStyle('compact');
-        $rendererStyle = $renderer->getStyle();
-        if (method_exists($rendererStyle, 'setVerticalBorderChars')) {
-            $rendererStyle->setVerticalBorderChars('');
-        } else {
-            $rendererStyle->setVerticalBorderChar('');
-        }
-        $rendererStyle->setCellRowContentFormat('%s  ');
-        $renderer->setRows($table)->render();
+        $this->renderTable($table, $output);
 
         return 0;
     }

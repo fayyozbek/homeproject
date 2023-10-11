@@ -16,7 +16,7 @@
         "laravel/ui": "^3.0",
         "lcobucci/jwt": "4.0",
         "tymon/jwt-auth": "^1.0.1",
-        "composer/composer": "1.10.15"
+        "composer/composer": "2.3.10"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^2.9",
