@@ -57,7 +57,7 @@ Route::group(['middleware' => 'auth:api'], function () {
 
     Route::post('tasks/{task}', [TaskApiController::class, 'check']);
 });
-    Route::get('/spa', function () {
+    Route::get('resources/views/spa', function () {
         return view('spa');
     });
 
