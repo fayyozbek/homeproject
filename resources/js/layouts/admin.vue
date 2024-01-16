@@ -12,7 +12,7 @@
       <hr>
 
       <p>
-        2023 © Valikhon
+        2021 © Valikhon
       </p>
     </footer>
   </div>
