@@ -6,6 +6,7 @@ require('laravel-mix-versionhash')
 
 mix
   .js('resources/js/app.js', 'public/dist/js')
+  .vue()
   .sass('resources/sass/app.scss', 'public/dist/css')
 
   .disableNotifications()
@@ -31,9 +32,7 @@ mix.webpackConfig({
   },
   output: {
     chunkFilename: 'dist/js/[chunkhash].js',
-    path: mix.config.hmr
-      ? '/'
-      : path.resolve(__dirname, mix.inProduction() ? './public/build' : './public')
+    path: path.resolve(__dirname, mix.inProduction() ? './public/build' : './public')
   }
 })
 
@@ -42,6 +41,7 @@ mix.then(() => {
     process.nextTick(() => publishAseets())
   }
 })
+  .vue()
 
 function publishAseets () {
   const publicDir = path.resolve(__dirname, './public')
