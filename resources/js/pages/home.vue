@@ -33,9 +33,9 @@
 
     <div class="container">
       <b-card-group>
-        <b-card title="Quadratic Equations in Standard Form">
+        <b-card title="Reduced Quadratic Equation">
           <b-card-text>
-            Problem generator for "Quadratic Equations in Standard Form"
+            Problem generator for "Reduced Quadratic Equation"
           </b-card-text>
 
           <b-button to="/tasks/1" variant="light">
@@ -43,9 +43,9 @@
           </b-button>
         </b-card>
 
-        <b-card title="Non-Standard Quadratic Equations">
+        <b-card title="Unreduced Quadratic Equation">
           <b-card-text>
-            Problem generator for "Non-Standard Quadratic Equations"
+            Problem generator for "Unreduced Quadratic Equation"
           </b-card-text>
 
           <b-button to="/tasks/2" variant="light">
@@ -53,9 +53,9 @@
           </b-button>
         </b-card>
 
-        <b-card title="Equations with Bracket Expansion">
+        <b-card title=" Brackets Quadratic Equation">
           <b-card-text>
-            Problem generator for "Equations with Bracket Expansion"
+            Problem generator for " Brackets Quadratic Equation"
           </b-card-text>
 
           <b-button to="/tasks/3" variant="light">
