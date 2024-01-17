@@ -4,7 +4,7 @@
       <b-form-input
         v-model="answers.x1"
         type="text"
-        placeholder="Введите x1"
+        placeholder="Enter x1"
         required
       />
     </b-form-group>
@@ -13,7 +13,7 @@
       <b-form-input
         v-model="answers.x2"
         type="text"
-        placeholder="Введите x2"
+        placeholder="Enter x2"
         required
       />
     </b-form-group>

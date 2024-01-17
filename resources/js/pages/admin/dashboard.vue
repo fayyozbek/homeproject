@@ -4,7 +4,7 @@
 
     <b-card-group deck>
       <b-card
-        header="Пользователей"
+        header="Users"
         bg-variant="success"
         text-variant="white"
         align="center"
@@ -14,7 +14,7 @@
         </b-card-text>
       </b-card>
       <b-card
-        header="Разделов"
+        header="Sections"
         bg-variant="secondary"
         text-variant="white"
         align="center"
@@ -24,7 +24,7 @@
         </b-card-text>
       </b-card>
       <b-card
-        header="Задач"
+        header="Tasks"
         bg-variant="primary"
         text-variant="white"
         align="center"

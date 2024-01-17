@@ -14,7 +14,7 @@
                          switch
         />
       </b-form-group>
-      <b-form-group :label="'Порядок'"
+      <b-form-group :label="'Order'"
                     label-for="order"
       >
         <b-form-input id="order"
@@ -22,7 +22,7 @@
                       type="number"
         />
       </b-form-group>
-      <b-form-group :label="'Раздел'"
+      <b-form-group :label="'Section'"
                     label-for="section_id"
       >
         <b-form-select
@@ -33,12 +33,12 @@
         >
           <template #first>
             <b-form-select-option :value="null" disabled>
-              -- Выберите раздел --
+              -- Select section --
             </b-form-select-option>
           </template>
         </b-form-select>
       </b-form-group>
-      <b-form-group :label="'Обработчик'"
+      <b-form-group :label="'Handler'"
                     label-for="task_handler_id"
       >
         <b-form-select
@@ -49,26 +49,26 @@
         >
           <template #first>
             <b-form-select-option :value="null" disabled>
-              -- Выберите обработчик --
+              -- Select handler --
             </b-form-select-option>
           </template>
         </b-form-select>
       </b-form-group>
-      <b-form-group :label="'Заголовок'"
+      <b-form-group :label="'Title'"
                     label-for="title"
       >
         <b-form-input id="title"
                       v-model="form.title"
-                      :placeholder="'Заголовок'"
+                      :placeholder="'Title'"
                       required
         />
       </b-form-group>
-      <b-form-group :label="'Описание'"
+      <b-form-group :label="'Description'"
                     label-for="description"
       >
         <b-form-textarea id="description"
                          v-model="form.description"
-                         :placeholder="'Описание'"
+                         :placeholder="'Description'"
         />
       </b-form-group>
       <b-form-group>
@@ -111,7 +111,7 @@ export default {
 
       this.sections = data.data
     } catch (e) {
-      // TODO: Обработать ошибку
+      console.log(e)
     }
 
     try {
@@ -119,7 +119,7 @@ export default {
 
       this.handlers = data.data
     } catch (e) {
-      // TODO: Обработать ошибку
+      console.log(e)
     }
   }
 }

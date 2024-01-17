@@ -56,6 +56,7 @@ export const actions = {
       commit(types.FETCH_USER_SUCCESS, { user: data })
     } catch (e) {
       commit(types.FETCH_USER_FAILURE)
+      console.log(e)
     }
   },
 

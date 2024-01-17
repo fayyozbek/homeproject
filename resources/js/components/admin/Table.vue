@@ -121,7 +121,7 @@ export default {
 
         this.items = data.data
       } catch (e) {
-        // TODO: Обработать ошибку
+        console.log(e)
       }
 
       this.isBusy = false

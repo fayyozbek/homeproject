@@ -14,7 +14,7 @@
                          switch
         />
       </b-form-group>
-      <b-form-group :label="'Порядок'"
+      <b-form-group :label="'Order'"
                     label-for="order"
       >
         <b-form-input id="order"
@@ -22,7 +22,7 @@
                       type="number"
         />
       </b-form-group>
-      <b-form-group :label="'Родитель'"
+      <b-form-group :label="'Parent'"
                     label-for="parent_id"
       >
         <b-form-select
@@ -32,26 +32,26 @@
         >
           <template #first>
             <b-form-select-option :value="null">
-              -- Корень --
+              -- Root --
             </b-form-select-option>
           </template>
         </b-form-select>
       </b-form-group>
-      <b-form-group :label="'Заголовок'"
+      <b-form-group :label="'Title'"
                     label-for="title"
       >
         <b-form-input id="title"
                       v-model="form.title"
-                      :placeholder="'Заголовок'"
+                      :placeholder="'Title'"
                       required
         />
       </b-form-group>
-      <b-form-group :label="'Описание'"
+      <b-form-group :label="'Description'"
                     label-for="description"
       >
         <b-form-textarea id="description"
                          v-model="form.description"
-                         :placeholder="'Описание'"
+                         :placeholder="'Description'"
         />
       </b-form-group>
     </template>
@@ -93,7 +93,7 @@ export default {
 
       this.options = data.data
     } catch (e) {
-      // TODO: Обработать ошибку
+      // TODO: Handle error
     }
   }
 }

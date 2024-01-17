@@ -36,11 +36,11 @@ export default {
   data () {
     return {
       fields: [
-        { key: 'is_active', label: 'Активность', sortable: true, class: 'text-center' },
-        { key: 'name', label: 'Имя', sortable: true },
+        { key: 'is_active', label: 'Active', sortable: true, class: 'text-center' },
+        { key: 'name', label: 'Name', sortable: true },
         { key: 'email', label: 'Email', sortable: true },
-        { key: 'created_at', label: 'Дата создания', sortable: true },
-        { key: 'updated_at', label: 'Дата обновления', sortable: true },
+        { key: 'created_at', label: 'Created at', sortable: true },
+        { key: 'updated_at', label: 'Updated at', sortable: true },
         { key: 'Actions', label: '', class: 'text-center' }
       ]
     }

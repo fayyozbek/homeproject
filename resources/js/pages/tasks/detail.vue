@@ -25,7 +25,7 @@
 
           <b-button type="submit" variant="primary" :disabled="isProcessing" class="mt-3">
             <b-spinner v-show="isProcessing" small />
-            Отправить решение
+            Send solution
           </b-button>
         </b-form>
       </div>

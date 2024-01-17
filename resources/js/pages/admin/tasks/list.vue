@@ -42,10 +42,10 @@ export default {
   data () {
     return {
       fields: [
-        { key: 'is_active', label: 'Активность', sortable: true, class: 'text-center' },
-        { key: 'title', label: 'Заголовок', sortable: true },
-        { key: 'section', label: 'Раздел', sortable: true },
-        { key: 'order', label: 'Порядок', sortable: true },
+        { key: 'is_active', label: 'Active', sortable: true, class: 'text-center' },
+        { key: 'title', label: 'Title', sortable: true },
+        { key: 'section', label: 'Section', sortable: true },
+        { key: 'order', label: 'Order', sortable: true },
         { key: 'Actions', label: '', class: 'text-center' }
       ]
     }
